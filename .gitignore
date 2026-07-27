@@ -1,3 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
 steam_config.json
 tmp.txt
 old/
+steam_price_cache.json
+steam_full_card_scan.json
+gem_arbitrage_results*.csv
+.gitignore
