@@ -5,8 +5,7 @@ steam_gem_arbitrage.py
 =======================
 
 Инструмент для поиска выгодных карточных сетов, которые можно скрафтить
-из самоцветов (gems) на Steam Community Market, а затем продать карточки
-по отдельности.
+из самоцветов (gems) на Steam Community Market, а затем продать карточки.
 
 ВАЖНО: крафтить бустер-паки (и, соответственно, наборы карточек) можно
 ТОЛЬКО для игр, которые есть в вашей библиотеке Steam. Поэтому скрипт
@@ -17,60 +16,27 @@ steam_gem_arbitrage.py
 -------------------
 1. Цену 1 самоцвета (через листинг "753-Sack of Gems", 1000 шт за раз).
 2. Список игр вашей библиотеки (через официальный Steam Web API).
-3. Для каждой игры — карты её сета и текущие цены на маркете (обычные
+3. Для каждой игры - карты её сета и текущие цены на маркете (обычные
    и фольговые отдельно).
 4. (опционально, нужна авторизация) Стоимость одного бустер-пака в
-   самоцветах для каждой игры — берётся со страницы Booster Creator.
+   самоцветах для каждой игры - берётся со страницы Booster Creator.
    Без авторизации используется допущение DEFAULT_GEMS_PER_BOOSTER=1000
    (верно для большинства, но не всех игр).
 5. Ожидаемую прибыль:
-     EV(бустера) = 3 * средняя_цена_ОБЫЧНОЙ_карты_после_комиссии - цена_пака_в_деньгах
-   где цена_пака_в_деньгах = gems_за_пак * цена_1_самоцвета.
-   Фольга в основной расчёт EV НЕ включается (это редкий дроп, не 1/3 от
-   пака) — показывается отдельной информационной колонкой.
-
-ВАЖНОЕ ДОПУЩЕНИЕ ПРО "НАБОРЫ"
--------------------------------
-Steam НЕ позволяет продать "сет" одним лотом — сет либо крафтится в
-значок (значок нельзя перепродать), либо карточки продаются по одной.
-Поэтому "продать набор" в этом скрипте трактуется как "продать все
-карточки из набора по отдельности".
+     EV(бустера) = 3 * средняя цена ОБЫЧНОЙ карты после комиссии - цена пака в  деньгах
+   где цена пака в деньгах = gems за пак * цена 1 самоцвета.
+   Фольга в основной расчёт EV НЕ включается (это редкий дроп, показывается отдельной информационной колонкой).
 
 ТРЕБОВАНИЯ
 ----------
-    pip install requests beautifulsoup4
+    pip install requests beautifulsoup4 curl_cffi
 
 НАСТРОЙКА (обязательно для получения списка библиотеки)
 ----------------------------------------------------------------------
-1. Получите бесплатный Steam Web API ключ:
+1. Получите Steam Web API ключ:
    https://steamcommunity.com/dev/apikey (привяжите к своему аккаунту).
 2. SteamID64 определяется автоматически из куки STEAM_LOGIN_SECURE,
    либо задайте вручную.
-
-ОДИН АККАУНТ
-----------------------------------------------------------------------
-    set STEAM_API_KEY=...
-    set STEAM_LOGIN_SECURE=...
-    set SESSIONID=...
-    set STEAM_ID=...   (не обязательно, если STEAM_LOGIN_SECURE задан)
-
-НЕСКОЛЬКО АККАУНТОВ (без релогинов/ручного редактирования между запусками)
-----------------------------------------------------------------------
-Перечислите метки аккаунтов через запятую в STEAM_ACCOUNTS, и для каждой
-метки задайте переменные с суффиксом _МЕТКА (в верхнем регистре). Если
-переменная с суффиксом не задана — используется значение без суффикса
-(удобно для общего на все аккаунты API-ключа).
-
-Пример для двух аккаунтов "main" и "alt" (Windows cmd):
-    set STEAM_ACCOUNTS=main,alt
-    set STEAM_API_KEY=общий_ключ_если_один_на_оба
-    set STEAM_ID_MAIN=76561199002315417
-    set STEAM_LOGIN_SECURE_MAIN=токен_первого_аккаунта
-    set SESSIONID_MAIN=sessionid_первого
-    set STEAM_ID_ALT=76561198111222333
-    set STEAM_LOGIN_SECURE_ALT=токен_второго_аккаунта
-    set SESSIONID_ALT=sessionid_второго
-    py -3.11 steam_gem_arbitrage.py
 
 Результаты по каждому аккаунту сохраняются в отдельный файл:
 gem_arbitrage_results_<метка>.csv
@@ -80,7 +46,7 @@ gem_arbitrage_results_<метка>.csv
     2. DevTools -> Application/Storage -> Cookies -> скопируйте значения
        `steamLoginSecure` и `sessionid`.
     3. НЕ хардкодьте их в файле — это токен доступа к аккаунту, задавайте
-       только через переменные окружения (`set ...`), не сохраняйте в код.
+       только через конфиг, не сохраняйте в код.
 
 ОГРАНИЧЕНИЯ STEAM API
 ----------------------
@@ -107,6 +73,19 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
+# curl_cffi умеет имитировать TLS-отпечаток настоящего браузера (Chrome) -
+# это нужно ТОЛЬКО для market/search/render: проверено вручную, что этот
+# конкретный эндпоинт Steam отличает обычный Python requests от браузера
+# (видимо, по TLS-fingerprint) и режет его 429, хотя в браузере с тем же
+# URL всё работает нормально. market/priceoverview такой проблемы не имеет.
+# pip install curl_cffi
+try:
+    from curl_cffi import requests as cffi_requests
+    HAS_CURL_CFFI = True
+except ImportError:
+    cffi_requests = None
+    HAS_CURL_CFFI = False
+
 # ----------------------------------------------------------------------
 # НАСТРОЙКИ
 # ----------------------------------------------------------------------
@@ -115,12 +94,7 @@ from bs4 import BeautifulSoup
 # КОНФИГ-ФАЙЛ (опционально, чтобы не вводить всё через set/export каждый раз)
 # ----------------------------------------------------------------------
 # Если рядом со скриптом лежит steam_config.json — настройки и аккаунты
-# берутся из него (см. steam_config.example.json как образец структуры).
-# Если файла нет — всё работает как раньше, через переменные окружения.
-#
-# !!! steam_config.json будет содержать ЖИВЫЕ токены сессий — храните его
-# !!! ТОЛЬКО локально, никогда не коммитьте в git и не показывайте никому
-# !!! (добавьте "steam_config.json" в .gitignore).
+# берутся из него (см. steam_config.example.json как образец).
 
 CONFIG_FILE = "steam_config.json"
 
@@ -144,7 +118,7 @@ _CONFIG = load_config_file()
 # НАСТРОЙКИ (из steam_config.json, если есть, иначе значения по умолчанию)
 # ----------------------------------------------------------------------
 
-CURRENCY = _CONFIG.get("currency", 18)  # 1=USD, 3=EUR, 5=RUB, 18=UAH ...
+CURRENCY = _CONFIG.get("currency", 18)  # 1=USD, 3=EUR, 18=UAH ...
 REQUEST_DELAY = _CONFIG.get("request_delay", 1.6)   # пауза между запросами к priceoverview, сек
 SEARCH_DELAY = _CONFIG.get("search_delay", 1.8)     # пауза между запросами к market/search/render, сек
 MAX_RETRIES = 5
@@ -152,6 +126,10 @@ CACHE_FILE = "steam_price_cache.json"
 
 DEFAULT_GEMS_PER_BOOSTER = _CONFIG.get("default_gems_per_booster", 1000)
 TOP_N = _CONFIG.get("top_n", 25)
+VERIFY_TOP_N = _CONFIG.get("verify_top_n", 15)  # сколько лучших позиций перепроверять
+LOW_LIQUIDITY_THRESHOLD = _CONFIG.get("low_liquidity_threshold", 5)  # меньше этого кол-ва
+                                                  # активных лотов на карту = предупреждение
+                                                  # "цена в моменте ненадёжна, тонкий рынок"
 ONLY_POSITIVE_EV = _CONFIG.get("only_positive_ev", False)
 
 # Переопределение стоимости бустера в гемах для конкретных игр (appid ->
@@ -223,26 +201,61 @@ CACHE = load_cache()
 # НИЗКОУРОВНЕВЫЕ ЗАПРОСЫ К STEAM
 # ----------------------------------------------------------------------
 
-def _get_json(url: str, params: dict, delay: float = REQUEST_DELAY) -> Optional[dict]:
-    """GET с ретраями и уважением к рейт-лимиту Steam."""
+# Адаптивная базовая пауза: растёт при 429, медленно убывает при успехах.
+# Это заменяет прежний подход "экспоненциальный бэкофф на КАЖДЫЙ отдельный
+# запрос" (который на сотнях запросов выливался в часы ожидания одних и тех
+# же пауз 3-7-13-26-52с раз за разом) на один самоподстраивающийся уровень
+# паузы на весь прогон — если Steam начинает лимитить, темп снижается один
+# раз и держится сниженным, а не выжигается заново на каждой карте.
+_adaptive_state = {"delay": REQUEST_DELAY, "consecutive_ok": 0}
+_ADAPTIVE_MAX_DELAY = 20.0
+_ADAPTIVE_MIN_DELAY = REQUEST_DELAY
+
+
+_cffi_session = cffi_requests.Session(impersonate="chrome124") if HAS_CURL_CFFI else None
+_cffi_warned = {"done": False}
+
+
+def _get_json(url: str, params: dict, delay: float = REQUEST_DELAY,
+               impersonate_browser: bool = False) -> Optional[dict]:
+    """
+    GET с ретраями и адаптивным уважением к рейт-лимиту Steam.
+    impersonate_browser=True: используем curl_cffi с TLS-отпечатком Chrome
+    вместо обычного requests — нужно для эндпоинтов, которые режут обычный
+    Python-трафик 429 независимо от паузы (проверено на market/search/render:
+    браузером тот же URL отвечает нормально, requests — постоянным 429).
+    """
+    if impersonate_browser and not HAS_CURL_CFFI:
+        if not _cffi_warned["done"]:
+            print("  [!] Для этого запроса нужен curl_cffi (имитация браузера), "
+                  "но он не установлен. Ставьте: pip install curl_cffi\n"
+                  "      Продолжаю через обычный requests — скорее всего, снова "
+                  "будет 429 на market/search/render.")
+            _cffi_warned["done"] = True
+        impersonate_browser = False
+
     for attempt in range(1, MAX_RETRIES + 1):
+        time.sleep(_adaptive_state["delay"])
         try:
-            resp = session.get(url, params=params, timeout=15)
-        except requests.RequestException as e:
+            if impersonate_browser:
+                resp = _cffi_session.get(url, params=params, timeout=15)
+            else:
+                resp = session.get(url, params=params, timeout=15)
+        except Exception as e:
             print(f"  [!] Сетевая ошибка: {e}, retry {attempt}/{MAX_RETRIES}")
             time.sleep(delay * attempt)
             continue
 
         if resp.status_code == 429:
-            wait = delay * (2 ** attempt) + random.uniform(0, 1)
-            print(f"  [!] 429 Too Many Requests, жду {wait:.1f}с...")
-            time.sleep(wait)
+            _adaptive_state["consecutive_ok"] = 0
+            _adaptive_state["delay"] = min(_adaptive_state["delay"] * 1.7, _ADAPTIVE_MAX_DELAY)
+            print(f"  [!] 429, поднимаю базовую паузу до {_adaptive_state['delay']:.1f}с "
+                  f"(попытка {attempt}/{MAX_RETRIES})...")
             continue
 
         if resp.status_code != 200:
             print(f"  [!] HTTP {resp.status_code} для {url}")
             print(f"      Тело ответа (первые 300 симв.): {resp.text[:300]!r}")
-            time.sleep(delay)
             continue
 
         try:
@@ -254,6 +267,13 @@ def _get_json(url: str, params: dict, delay: float = REQUEST_DELAY) -> Optional[
 
         if not parsed.get("success"):
             print(f"  [!] Steam вернул success=false. Полный ответ: {parsed}")
+
+        # Успех — понемногу возвращаем темп к норме после серии удач подряд,
+        # чтобы не застревать на завышенной паузе навсегда после единичного 429.
+        _adaptive_state["consecutive_ok"] += 1
+        if _adaptive_state["consecutive_ok"] >= 20 and _adaptive_state["delay"] > _ADAPTIVE_MIN_DELAY:
+            _adaptive_state["delay"] = max(_adaptive_state["delay"] * 0.85, _ADAPTIVE_MIN_DELAY)
+            _adaptive_state["consecutive_ok"] = 0
 
         return parsed
 
@@ -281,10 +301,10 @@ def get_price_overview(market_hash_name: str, appid: int = 753) -> Optional[dict
     if cache_key in CACHE:
         return CACHE[cache_key]
 
-    time.sleep(REQUEST_DELAY)
     data = _get_json(
         "https://steamcommunity.com/market/priceoverview/",
         {"appid": appid, "currency": CURRENCY, "market_hash_name": market_hash_name},
+        impersonate_browser=True,
     )
     if data and data.get("success"):
         CACHE[cache_key] = data
@@ -509,17 +529,27 @@ def is_foil_card(market_hash_name: str) -> bool:
     return any(marker.lower() in market_hash_name.lower() for marker in FOIL_MARKERS)
 
 
-def get_game_cards_with_prices(appid: int) -> list:
-    """
-    Список карт игры С ЦЕНАМИ за ОДИН запрос (цена уже есть в результатах
-    поиска — sell_price_text, отдельный поход в priceoverview не нужен).
-    Возвращает: [{"hash_name":str, "lowest": float|None, "foil": bool}, ...]
-    """
-    cache_key = f"cards_priced:{appid}:{CURRENCY}"
-    if cache_key in CACHE:
-        return CACHE[cache_key]
+_debug_dumped_once = {"done": False}
 
-    time.sleep(SEARCH_DELAY)
+
+def get_game_card_names(appid: int) -> list:
+    """
+    Список карт игры С ЦЕНОЙ за ОДИН запрос к поиску (быстрый режим).
+    Цена берётся из числового поля 'sell_price' — в подавляющем большинстве
+    случаев корректна. Изредка (при деградации ответов Steam под нагрузкой)
+    может быть неточной для отдельных карт — поэтому финальный топ по
+    выгоде дополнительно перепроверяется через priceoverview в
+    process_account(), а не доверяется вслепую здесь.
+    Возвращает: [{"hash_name":str, "raw_price": float|None, "foil": bool}, ...]
+    """
+    cache_key = f"cardnames:{appid}:{CURRENCY}"
+    if cache_key in CACHE:
+        cached = CACHE[cache_key]
+        sample = cached[0] if cached else None
+        print(f"  [cache] appid {appid}: {len(cached)} карт из кэша "
+              f"(пример: {sample})")
+        return cached
+
     params = {
         "query": "",
         "start": 0,
@@ -533,20 +563,40 @@ def get_game_cards_with_prices(appid: int) -> list:
         "category_753_Game[]": f"tag_app_{appid}",
         "category_753_item_class[]": "tag_item_class_2",  # Trading Card
     }
-    data = _get_json("https://steamcommunity.com/market/search/render/", params, delay=SEARCH_DELAY)
+    data = _get_json("https://steamcommunity.com/market/search/render/", params,
+                      delay=SEARCH_DELAY, impersonate_browser=True)
+
+    if not data or not data.get("success"):
+        # НЕ кэшируем сбой — иначе временная ошибка "прилипнет" навсегда.
+        print(f"  [!] appid {appid}: не удалось получить список карт (сбой "
+              f"запроса, НЕ кэшируется — повторится в следующий раз).")
+        return []
+
+    if not _debug_dumped_once["done"] and data.get("results"):
+        sample_raw = json.dumps(data["results"][0], ensure_ascii=False, indent=2)
+        print(f"  [DEBUG][network, appid {appid}] Сырой первый результат "
+              f"(currency={CURRENCY}):\n{sample_raw[:800]}")
+        _debug_dumped_once["done"] = True
+
     cards = []
-    if data and data.get("success"):
-        for row in data.get("results", []):
-            hash_name = row.get("hash_name")
-            if not hash_name:
-                continue
-            # подстраховка: если фильтр по игре вдруг не сработал как ожидается,
-            # проверяем appid по числовому префиксу самого hash_name
-            m = re.match(r"^(\d+)-", hash_name)
-            if m and int(m.group(1)) != appid:
-                continue
-            price = parse_price_str(row.get("sell_price_text"))
-            cards.append({"hash_name": hash_name, "lowest": price, "foil": is_foil_card(hash_name)})
+    for row in data.get("results", []):
+        hash_name = row.get("hash_name")
+        if not hash_name:
+            continue
+        m = re.match(r"^(\d+)-", hash_name)
+        if m and int(m.group(1)) != appid:
+            continue
+        raw = row.get("sell_price")
+        raw_price = (raw / 100.0) if isinstance(raw, (int, float)) else None
+        listings = row.get("sell_listings")
+        listings = listings if isinstance(listings, int) else None
+        cards.append({
+            "hash_name": hash_name, "raw_price": raw_price,
+            "foil": is_foil_card(hash_name), "listings": listings,
+        })
+
+    print(f"  [network] appid {appid}: {len(cards)} карт получено "
+          f"(пример: {cards[0] if cards else None})")
     CACHE[cache_key] = cards
     save_cache(CACHE)
     return cards
@@ -573,29 +623,58 @@ class GameAnalysis:
     roi_percent: float = 0.0
     full_set_buy_cost: float = 0.0
     full_set_sell_value: float = 0.0
+    verified: bool = False  # True = цены перепроверены через priceoverview
+    low_liquidity_cards: list = field(default_factory=list)  # [(hash_name, listings_or_volume), ...]
     card_prices: dict = field(default_factory=dict)
 
 
 def analyze_game(appid: int, gems_per_booster: int, gem_unit_price: float,
                   name_hint: str = "") -> Optional[GameAnalysis]:
-    cards = get_game_cards_with_prices(appid)
-    if not cards:
-        print(f"  [i] appid {appid} ({name_hint}): нет сета трейдинг-карт на маркете — пропускаю.")
+    """
+    Цена КАЖДОЙ карты берётся через priceoverview. Медленнее, чем брать
+    'sell_price' прямо из поиска, но это единственный способ, который на
+    практике стабильно давал верные цифры во ВСЕХ прогонах, где
+    использовался — тогда как 'sell_price' из поиска систематически (не
+    один раз, воспроизведено даже с чистым кэшем перед каждым запуском)
+    отдавал сильно заниженные значения. Скорость компенсируется дисковым
+    кэшем: повторные запуски по тем же картам почти мгновенны.
+    """
+    card_list = get_game_card_names(appid)
+    if not card_list:
+        print(f"  [i] appid {appid} ({name_hint}): карт не получено (либо у игры "
+              f"действительно нет сета, либо сбой запроса — см. [!] выше) — пропускаю.")
         return None
 
-    result = GameAnalysis(appid=appid, name=name_hint or str(appid), num_cards=len(cards),
-                           gems_per_booster=gems_per_booster, gem_unit_price=gem_unit_price)
+    result = GameAnalysis(appid=appid, name=name_hint or str(appid), num_cards=len(card_list),
+                           gems_per_booster=gems_per_booster, gem_unit_price=gem_unit_price,
+                           verified=True)
 
     normal_lowest, normal_net, foil_net = [], [], []
-    for c in cards:
-        if c["lowest"] is None:
+    for c in card_list:
+        hash_name = c["hash_name"]
+        price_data = get_price_overview(hash_name, appid=753)
+        if not price_data or not price_data.get("success"):
             continue
-        net = net_amount_after_fee(c["lowest"])
-        result.card_prices[c["hash_name"]] = {"lowest": c["lowest"], "net": net, "foil": c["foil"]}
+        lowest = parse_price_str(price_data.get("lowest_price"))
+        liquidity = None
+        volume_str = price_data.get("volume")
+        if volume_str:
+            try:
+                liquidity = int(re.sub(r"[^\d]", "", volume_str))
+            except ValueError:
+                liquidity = None
+        if lowest is None:
+            continue
+        net = net_amount_after_fee(lowest)
+        result.card_prices[hash_name] = {
+            "lowest": lowest, "net": net, "foil": c["foil"], "liquidity": liquidity,
+        }
+        if not c["foil"] and liquidity is not None and liquidity < LOW_LIQUIDITY_THRESHOLD:
+            result.low_liquidity_cards.append((hash_name, liquidity))
         if c["foil"]:
             foil_net.append(net)
         else:
-            normal_lowest.append(c["lowest"])
+            normal_lowest.append(lowest)
             normal_net.append(net)
 
     result.num_normal_cards = len(normal_net)
@@ -620,9 +699,11 @@ def analyze_game(appid: int, gems_per_booster: int, gem_unit_price: float,
     result.full_set_buy_cost = sum(normal_lowest)
     result.full_set_sell_value = sum(normal_net)
 
+    tag = " [проверено]"
+    liq_tag = f" ⚠низколиквидных карт: {len(result.low_liquidity_cards)}" if result.low_liquidity_cards else ""
     print(f"  appid {appid:>7} | {result.name[:32]:<32} | обыч {result.num_normal_cards:>2} "
           f"фольга {result.num_foil_cards:>2} | EV/пак {result.ev_per_booster:>8.2f} | "
-          f"ROI {result.roi_percent:>7.1f}%")
+          f"ROI {result.roi_percent:>7.1f}%{tag}{liq_tag}")
 
     return result
 
@@ -643,13 +724,14 @@ def print_and_export(results: list, csv_path: str = "gem_arbitrage_results.csv")
     print(f"\n\n===================== ТОП-{len(top)} ПО ВЫГОДЕ "
           f"(из {len(results)} игр вашей библиотеки с картами) =====================")
     print(f"{'appid':>8} | {'игра':<28} | {'обыч':>4} | {'фольга':>6} | {'гем/пак':>7} | "
-          f"{'ст-ть пака':>10} | {'ср.цена карты':>13} | {'EV с пака':>10} | {'ROI %':>7}")
+          f"{'ст-ть пака':>10} | {'ср.цена карты':>13} | {'EV с пака':>10} | {'ROI %':>7} | ⚠")
     for r in top:
         name_short = (r.name[:26] + "…") if len(r.name) > 27 else r.name
+        liq_mark = "⚠" if r.low_liquidity_cards else " "
         print(f"{r.appid:>8} | {name_short:<28} | {r.num_normal_cards:>4} | "
               f"{r.num_foil_cards:>6} | {r.gems_per_booster:>7} | "
               f"{r.booster_cost_money:>10.2f} | {r.avg_normal_card_net_after_fee:>13.2f} | "
-              f"{r.ev_per_booster:>10.2f} | {r.roi_percent:>6.1f}%")
+              f"{r.ev_per_booster:>10.2f} | {r.roi_percent:>6.1f}% | {liq_mark}")
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -658,6 +740,7 @@ def print_and_export(results: list, csv_path: str = "gem_arbitrage_results.csv")
             "booster_cost_money", "avg_normal_card_lowest_price",
             "avg_normal_card_net_after_fee", "avg_foil_card_net_after_fee",
             "ev_per_booster", "roi_percent", "full_set_buy_cost", "full_set_sell_value",
+            "low_liquidity_cards_count",
         ])
         for r in pool:
             writer.writerow([
@@ -668,9 +751,22 @@ def print_and_export(results: list, csv_path: str = "gem_arbitrage_results.csv")
                 f"{r.avg_foil_card_net_after_fee:.2f}",
                 f"{r.ev_per_booster:.2f}", f"{r.roi_percent:.1f}",
                 f"{r.full_set_buy_cost:.2f}", f"{r.full_set_sell_value:.2f}",
+                len(r.low_liquidity_cards),
             ])
     print(f"\nПолный список ({len(pool)} игр) сохранён в {csv_path}")
     print("[!] Напоминание: EV считается ТОЛЬКО по обычным (не фольговым) картам.")
+
+    low_liq_in_top = [r for r in top if r.low_liquidity_cards]
+    if low_liq_in_top:
+        print(f"\n[⚠] У {len(low_liq_in_top)} позиций из топа есть карты с малым числом "
+              f"активных лотов (< {LOW_LIQUIDITY_THRESHOLD}) — на таком тонком рынке "
+              f"'нижняя цена' может быть неактуальна уже в момент, когда вы решите "
+              f"продавать (последний дешёвый лот могут выкупить раньше вас, либо вы "
+              f"сами станете тем, кто продаёт в пустоту). Проверяйте эти карты вручную "
+              f"на маркете перед тем, как полагаться на цифры:")
+        for r in low_liq_in_top:
+            cards_str = ", ".join(f"{name} ({liq} лотов)" for name, liq in r.low_liquidity_cards)
+            print(f"    - {r.appid} ({r.name}): {cards_str}")
 
 
 # ----------------------------------------------------------------------
@@ -734,18 +830,17 @@ def process_account(account: dict, gem_price: float) -> list:
     if booster_creator_gems:
         gems_override.update(booster_creator_gems)
 
-    est_minutes = len(owned_games) * SEARCH_DELAY / 60
-    print(f"\n  Считаю экономику по {len(owned_games)} играм "
-          f"(примерно {est_minutes:.1f} мин)...\n")
+    est_minutes = len(owned_games) * 6 * REQUEST_DELAY / 60  # грубая оценка времени прогона (6 запросов на игру, включая поиск карт и priceoverview)
+    print(f"\n  Считаю экономику по {len(owned_games)} играм (точный режим, "
+          f"примерно {est_minutes:.0f} мин, зависит от рейт-лимита Steam)...\n")
 
     results = []
     skipped_unconfirmed = []
     for appid, name in owned_games:
         if booster_creator_gems and appid not in confirmed_craftable:
-            # см. пояснение в комментарии ниже про No More Room in Hell —
-            # без подтверждения из Booster Creator считать EV нечестно.
             skipped_unconfirmed.append((appid, name))
             continue
+
         gems_cost = gems_override.get(appid, DEFAULT_GEMS_PER_BOOSTER)
         analysis = analyze_game(appid, gems_cost, gem_price, name_hint=name)
         if analysis:
