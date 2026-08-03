@@ -1,12 +1,12 @@
 {
-  "_comment": "Скопируйте этот файл в steam_config.json и впишите свои реальные данные. НИКОГДА не коммитьте steam_config.json в git и не показывайте его содержимое никому - login_secure это токен доступа к аккаунту, равносильный временному паролю.",
+  "_comment": "Скопируйте этот файл в steam_config.json и впишите свои реальные данные.",
 
   "currency": 18,
   "default_gems_per_booster": 1000,
   "top_n": 25,
   "only_positive_ev": false,
 
-  "api_key": "ваш_steam_web_api_ключ_с_https://steamcommunity.com/dev/apikey (общий на все аккаунты, если не переопределён внутри конкретного аккаунта)",
+  "api_key": "steam_web_api ключ https://steamcommunity.com/dev/apikey (общий на все аккаунты)",
 
   "manual_gems_override": {
     "570": 2000
@@ -15,13 +15,13 @@
   "accounts": [
     {
       "label": "main",
-      "steam_id": "76561199002315417",
-      "login_secure": "вставьте_сюда_steamLoginSecure_из_devtools",
-      "sessionid": "вставьте_сюда_sessionid_из_devtools"
+      "steam_id": "вставьте сюда steamid64",
+      "login_secure": "вставьте сюда steamLoginSecure из devtools", 
+      "sessionid": "вставьте сюда sessionid из devtools"
     },
     {
       "label": "alt",
-      "steam_id": "76561198111222333",
+      "steam_id": "",
       "login_secure": "",
       "sessionid": ""
     }
