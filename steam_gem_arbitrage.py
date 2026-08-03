@@ -71,7 +71,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup # type: ignore
 
 # curl_cffi умеет имитировать TLS-отпечаток настоящего браузера (Chrome) -
 # это нужно ТОЛЬКО для market/search/render: проверено вручную, что этот
@@ -80,7 +80,7 @@ from bs4 import BeautifulSoup
 # URL всё работает нормально. market/priceoverview такой проблемы не имеет.
 # pip install curl_cffi
 try:
-    from curl_cffi import requests as cffi_requests
+    from curl_cffi import requests as cffi_requests # type: ignore
     HAS_CURL_CFFI = True
 except ImportError:
     cffi_requests = None
