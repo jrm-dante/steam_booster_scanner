@@ -4,6 +4,7 @@ __pycache__/
 venv/
 steam_config.json
 tmp.txt
+steam_login_helper.py
 old/
 steam_price_cache.json
 steam_full_card_scan.json

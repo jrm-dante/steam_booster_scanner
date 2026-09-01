@@ -1,31 +1,35 @@
 # steam_booster_scanner
 
-Считает ожидаемую прибыль от крафта бустер-паков из самоцветов Steam для
-игр вашей библиотеки: цена пака в гемах vs суммарная цена продажи карт
-этого набора на торговой площадке (после комиссии).
+Calculates the expected profit from crafting Steam gem booster packs for
+games in your library: the pack price in gems versus the total resale value
+of the cards in that set on the marketplace (after fees).
 
-## Установка
+### README translation
+
+[README_rus.md](README_rus.md)
+
+## Installation
 
 ```
 pip install requests beautifulsoup4
 ```
 
-## Настройка
+## Setup
 
-1. Скопируйте `steam_config.example.json` в `steam_config.json`.
-2. Получите бесплатный ключ Steam Web API: https://steamcommunity.com/dev/apikey
-3. Получите `steamLoginSecure` / `sessionid`: залогиньтесь на
-   steamcommunity.com в браузере -> DevTools -> Application/Storage ->
-   Cookies -> скопируйте значения.
-4. Впишите всё это в `steam_config.json` (см. комментарии внутри файла).
+1. Copy `steam_config.example.json` to `steam_config.json`.
+2. Get a free Steam Web API key: https://steamcommunity.com/dev/apikey
+3. Get your `steamLoginSecure` / `sessionid`: log in to
+   steamcommunity.com in your browser -> DevTools -> Application/Storage ->
+   Cookies -> copy the values.
+4. Enter all of this into `steam_config.json` (see comments in the file).
 
-**`steam_config.json` содержит токен доступа к вашему аккаунту — файл в
-`.gitignore`, не коммитьте его и никому не показывайте.**
+**`steam_config.json` contains your account access token — the file is in
+`.gitignore`, do not commit it and do not show it to anyone.**
 
-## Запуск
+## Running
 
 ```
 python steam_gem_arbitrage.py
 ```
 
-Результаты по каждому аккаунту сохраняются в `gem_arbitrage_results_<метка>.csv`.
+Results for each account are saved to `gem_arbitrage_results_<label>.csv`.
